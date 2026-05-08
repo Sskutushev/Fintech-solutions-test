@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ProducerModule } from './producer.module';
+import { MetricsService } from './metrics.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(ProducerModule);
@@ -20,6 +21,8 @@ async function bootstrap() {
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, document);
+
+  app.get(MetricsService).init();
 
   await app.listen(process.env.PRODUCER_PORT ?? 3001);
 }

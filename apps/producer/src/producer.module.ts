@@ -8,6 +8,8 @@ import { HealthController } from './health.controller';
 import { RootController } from './root.controller';
 import { ActivityService } from './activity.service';
 import { AdminController } from './admin.controller';
+import { MetricsController } from './metrics.controller';
+import { MetricsService } from './metrics.service';
 
 @Module({
   imports: [
@@ -28,7 +30,8 @@ import { AdminController } from './admin.controller';
     EventsController,
     HealthController,
     AdminController,
+    MetricsController,
   ],
-  providers: [EventsService, ActivityService],
+  providers: [EventsService, ActivityService, MetricsService],
 })
 export class ProducerModule {}

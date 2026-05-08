@@ -32,6 +32,7 @@ export class DashboardService {
       consumerActivity,
       notifierActivity,
       queues,
+      producerMetrics,
     ] = await Promise.all([
       this.safeGet(`${producerUrl}/health`),
       this.safeGet(`${consumerUrl}/health`),
@@ -42,29 +43,71 @@ export class DashboardService {
       this.safeGet(`${rabbitApiUrl}/queues`, {
         auth: { username: rabbitUser, password: rabbitPass },
       }),
+      this.safeGet(`${producerUrl}/metrics`),
     ]);
+
+    const health = {
+      producer: this.healthFromResponse(producerHealth),
+      consumer: this.healthFromResponse(consumerHealth),
+      notifier: this.healthFromResponse(notifierHealth),
+    };
+
+    const queueItems = Array.isArray(queues?.data)
+      ? queues.data.map((q: Record<string, unknown>) => ({
+          name: q.name,
+          ready: q.messages_ready,
+          unacked: q.messages_unacknowledged,
+          total: q.messages,
+        }))
+      : [];
+
+    const alerts = this.buildAlerts(health, queueItems);
 
     return {
       timestamp: new Date().toISOString(),
-      health: {
-        producer: this.healthFromResponse(producerHealth),
-        consumer: this.healthFromResponse(consumerHealth),
-        notifier: this.healthFromResponse(notifierHealth),
-      },
-      queues: Array.isArray(queues?.data)
-        ? queues.data.map((q: Record<string, unknown>) => ({
-            name: q.name,
-            ready: q.messages_ready,
-            unacked: q.messages_unacknowledged,
-            total: q.messages,
-          }))
-        : [],
+      health,
+      queues: queueItems,
       activity: {
         producer: this.activityItems(producerActivity?.data),
         consumer: this.activityItems(consumerActivity?.data),
         notifier: this.activityItems(notifierActivity?.data),
       },
+      metrics: {
+        producer: this.metricsPayload(producerMetrics?.data),
+      },
+      alerts,
     };
+  }
+
+  private metricsPayload(payload: unknown): string | null {
+    return typeof payload === 'string' ? payload : null;
+  }
+
+  private buildAlerts(
+    health: { producer: string; consumer: string; notifier: string },
+    queues: Array<{ name: unknown; total: unknown }>,
+  ): string[] {
+    const alerts: string[] = [];
+
+    for (const [service, state] of Object.entries(health)) {
+      if (state !== 'up') {
+        alerts.push(`Service down: ${service}`);
+      }
+    }
+
+    const dlqWithMessages = queues.filter(
+      (q) =>
+        typeof q.name === 'string' &&
+        q.name.includes('dlq') &&
+        Number(q.total ?? 0) > 0,
+    );
+    if (dlqWithMessages.length > 0) {
+      alerts.push(
+        `DLQ has messages: ${dlqWithMessages.map((q) => q.name).join(', ')}`,
+      );
+    }
+
+    return alerts;
   }
 
   private activityItems(payload: unknown): Record<string, unknown>[] {

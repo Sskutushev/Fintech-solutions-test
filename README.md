@@ -1,77 +1,107 @@
 # Notifications Platform
 
-Microservice platform on NestJS for event processing with RabbitMQ and Telegram delivery.
+Fintech-oriented event platform on NestJS with RabbitMQ, Redis, Telegram delivery, and a visual admin dashboard.
 
-## Services
+## What Is Included
 
-- `producer`: HTTP API (`POST /events`) + Swagger (`/api`)
-- `consumer`: event processor with idempotency (Redis) and retry routing
-- `notifier`: Telegram sender with retry on rate limits
+- `producer` (port `3001`): receives events via HTTP and publishes to RabbitMQ
+- `consumer`: processes events with idempotency and retry/DLQ logic
+- `notifier`: sends event notifications to Telegram with retry policy
+- `admin` (port `3000`): manager-friendly dashboard with statuses, queue health, and activity feeds
+- `rabbitmq` (port `15672`): broker management UI
+- `redis`: idempotency storage for processed events
 
-## Architecture
+## Key Features
+
+- Event idempotency (`eventId`/`idempotencyKey`)
+- Retry queues (`10s`, `60s`) and DLQ routing
+- Structured logs and in-memory activity feeds for operations
+- Telegram notification formatting with readable metadata
+- Two dashboard themes (Dark/Light) with animated gradient background
+
+## Project Structure
 
 ```text
-HTTP Client -> Producer -> RabbitMQ events.exchange -> Consumer -> RabbitMQ notify.exchange -> Notifier -> Telegram Bot API
-                                 |                    | retry.10s / retry.60s / DLQ
-                                 +--------------------+
-
-Redis is used for idempotency keys in consumer.
+apps/
+  producer/
+  consumer/
+  notifier/
+  notifications-platform/  # admin dashboard + snapshot API
+libs/
+  shared/
+  rabbitmq/
 ```
 
-## Requirements
-
-- Node.js 20+
-- Docker + Docker Compose
-
-## Environment
+## Environment Setup
 
 ```bash
 cp .env.example .env
 ```
 
-Fill values:
+Required values:
 
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
 
-## Run in Docker
+## Run Locally in Docker
 
 ```bash
 docker compose up --build
 ```
 
-- Producer API: `http://localhost:3001`
-- Swagger: `http://localhost:3001/api`
+Endpoints:
+
+- Admin Dashboard: `http://localhost:3000`
+- Producer Swagger: `http://localhost:3001` (redirects to `/api`)
 - RabbitMQ UI: `http://localhost:15672` (`guest/guest`)
 
-## Local Run
-
-```bash
-npm install
-npm run start:producer:dev
-npm run start:consumer:dev
-npm run start:notifier:dev
-```
-
-## Test request
+## Generate Demo Data (for Dashboard Activity)
 
 ```bash
 curl -X POST http://localhost:3001/events \
   -H "Content-Type: application/json" \
-  -d '{"type":"payment.received","payload":{"amount":1000,"currency":"RUB"}}'
+  -d '{"type":"payment.received","payload":{"userId":"u-100","amount":1500,"currency":"RUB"}}'
+
+curl -X POST http://localhost:3001/events \
+  -H "Content-Type: application/json" \
+  -d '{"type":"user.registered","payload":{"userId":"u-300","email":"user@example.com"}}'
 ```
 
-## Quality checks
+Idempotency demo (send twice):
 
 ```bash
-npm run format:check
-npm run lint
-npm run typecheck
-npm test
-npm run test:e2e
-npm run build
+curl -X POST http://localhost:3001/events \
+  -H "Content-Type: application/json" \
+  -d '{"type":"payment.received","idempotencyKey":"11111111-1111-4111-8111-111111111111","payload":{"userId":"dup","amount":999}}'
 ```
+
+Validation demo (expected `400`):
+
+```bash
+curl -X POST http://localhost:3001/events \
+  -H "Content-Type: application/json" \
+  -d '{"payload":{"oops":true}}'
+```
+
+## Quality Checks
+
+Run full local gate:
+
+```bash
+npm run verify:release
+```
+
+This sequentially runs:
+
+1. format check
+2. eslint
+3. typecheck
+4. unit tests
+5. e2e tests
+6. build
 
 ## CI
 
-GitHub Actions workflow `.github/workflows/ci.yml` runs format, lint, typecheck, unit tests, e2e tests, and build on each PR/push.
+GitHub Actions pipeline is split into sequential jobs (`needs` chain):
+
+- `format` -> `eslint` -> `typecheck` -> `unit-tests` -> `e2e-tests` -> `build`
