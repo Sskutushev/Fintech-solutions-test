@@ -6,7 +6,7 @@ export class AdminController {
   constructor(private readonly activityService: ActivityService) {}
 
   @Get('activity')
-  activity() {
-    return { service: 'producer', items: this.activityService.list() };
+  async activity() {
+    return { service: 'producer', items: await this.activityService.list() };
   }
 }

@@ -17,6 +17,7 @@ import { ActivityService } from '../activity.service';
 @Injectable()
 export class EventsService {
   private readonly logger = new Logger(EventsService.name);
+  private readonly publishAttempts = 3;
 
   constructor(
     private readonly amqpConnection: AmqpConnection,
@@ -39,16 +40,7 @@ export class EventsService {
     };
 
     try {
-      await this.amqpConnection.publish(
-        EXCHANGES.EVENTS,
-        ROUTING_KEYS.EVENTS,
-        message,
-        {
-          persistent: true,
-          messageId: message.eventId,
-          contentType: 'application/json',
-        },
-      );
+      await this.publishWithRetry(message);
       this.logger.log(
         `Event published: id=${message.eventId} type=${message.eventType}`,
       );
@@ -72,5 +64,36 @@ export class EventsService {
       });
       throw new InternalServerErrorException('Failed to publish event');
     }
+  }
+
+  private async publishWithRetry(message: EventMessage): Promise<void> {
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= this.publishAttempts; attempt += 1) {
+      try {
+        await this.amqpConnection.publish(
+          EXCHANGES.EVENTS,
+          ROUTING_KEYS.EVENTS,
+          message,
+          {
+            persistent: true,
+            messageId: message.eventId,
+            contentType: 'application/json',
+          },
+        );
+        return;
+      } catch (error) {
+        lastError = error as Error;
+        if (attempt < this.publishAttempts) {
+          const delayMs = attempt * 300;
+          this.logger.warn(
+            `Publish retry ${attempt}/${this.publishAttempts - 1} for ${message.eventId} in ${delayMs}ms`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
+    }
+
+    throw lastError ?? new Error('Unknown publish error');
   }
 }
